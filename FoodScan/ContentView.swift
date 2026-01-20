@@ -52,21 +52,21 @@ struct ProductHistoryView: View {
                         .padding(.horizontal)
                 }
             } else {
-                List {
+            List {
                     ForEach(products) { product in
-                        NavigationLink {
+                    NavigationLink {
                             ProductDetailView(product: product)
-                        } label: {
+                    } label: {
                             ProductRow(product: product)
                         }
                     }
                     .onDelete(perform: deleteProducts)
                 }
                 .navigationTitle("Scan History")
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        EditButton()
-                    }
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    EditButton()
+                }
                 }
             }
         }
@@ -96,7 +96,7 @@ struct ProductRow: View {
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
-                }
+            }
                 
                 // Compact classification badge
                 HStack(spacing: 4) {

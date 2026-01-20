@@ -14,13 +14,9 @@ struct ScanView: View {
     @State private var isIngredientScanning = false
     @State private var scannedBarcode: String?
     @State private var capturedImage: UIImage?
-    @State private var frontImage: UIImage?
-    @State private var weightInGrams: String = ""
     @State private var isProcessing = false
     @State private var processedProduct: Product?
     @State private var showProductDetail = false
-    @State private var showWeightInput = false
-    @State private var isFrontImageScanning = false
     
     var body: some View {
         NavigationStack {
@@ -112,27 +108,6 @@ struct ScanView: View {
                     }
                 )
             }
-            .sheet(isPresented: $showWeightInput) {
-                WeightAndFrontImageSheet(
-                    isPresented: $showWeightInput,
-                    weightText: $weightInGrams,
-                    onFrontImageCaptured: { image in
-                        frontImage = image
-                    },
-                    onComplete: {
-                        createProduct()
-                    }
-                )
-            }
-            .sheet(isPresented: $isFrontImageScanning) {
-                IngredientScanSheet(
-                    isPresented: $isFrontImageScanning,
-                    onImageCaptured: { image in
-                        frontImage = image
-                        isFrontImageScanning = false
-                    }
-                )
-            }
             .sheet(isPresented: $showProductDetail) {
                 if let product = processedProduct {
                     ProductDetailView(product: product)
@@ -193,46 +168,13 @@ struct ScanView: View {
                 // Step 3: Parse label sections (Ingredients, Allergens, etc.)
                 let parsedLabel = ParsedLabel(originalText: text, translatedText: translatedText)
                 
-                // Step 6: Show weight input and front image capture
-                // (Classification and calories will be calculated in createProduct)
-                DispatchQueue.main.async {
-                    isProcessing = false
-                    // Store parsed data temporarily
-                    self.capturedImage = image
-                    // Show weight input sheet
-                    showWeightInput = true
-                }
-            }
-        }
-    }
-    
-    // Create product with all collected information
-    private func createProduct() {
-        guard let image = capturedImage else { return }
-        
-        isProcessing = true
-        
-        // Re-process to get classification (we already have the data, but need to recreate product)
-        OCRScanner.extractText(from: image) { extractedText in
-            guard let text = extractedText, !text.isEmpty else {
-                DispatchQueue.main.async {
-                    isProcessing = false
-                }
-                return
-            }
-            
-            TranslationService.translateToEnglish(text) { translatedText in
-                let parsedLabel = ParsedLabel(originalText: text, translatedText: translatedText)
+                // Step 4: Classify dietary type
                 let classificationResult = DietaryClassifier.classify(parsedLabel.ingredients)
+                
+                // Step 5: Extract calories
                 let calories = CaloriesParser.extractCalories(from: translatedText)
                 
-                // Convert weight string to Int
-                let weight = Int(weightInGrams.trimmingCharacters(in: .whitespacesAndNewlines))
-                
-                // Convert front image to Data
-                let frontImageData = frontImage?.jpegData(compressionQuality: 0.8)
-                
-                // Create product
+                // Step 6: Create product immediately (without weight/image)
                 let product = Product(
                     barcode: scannedBarcode ?? "N/A",
                     productName: nil,
@@ -242,16 +184,15 @@ struct ScanView: View {
                     dietaryClassification: classificationResult.classification,
                     classificationReason: classificationResult.reason,
                     calories: calories,
-                    weightInGrams: weight,
-                    frontImageData: frontImageData
+                    weightInGrams: nil,
+                    frontImageData: nil
                 )
                 
-                // Save to SwiftData
+                // Save to SwiftData and show product detail
                 DispatchQueue.main.async {
                     modelContext.insert(product)
                     isProcessing = false
                     processedProduct = product
-                    showWeightInput = false
                     showProductDetail = true
                 }
             }
@@ -315,6 +256,7 @@ struct WeightAndFrontImageSheet: View {
     var onFrontImageCaptured: (UIImage) -> Void
     var onComplete: () -> Void
     @State private var isFrontImageScanning = false
+    @State private var capturedImage: UIImage?
     
     var body: some View {
         NavigationStack {
@@ -339,22 +281,60 @@ struct WeightAndFrontImageSheet: View {
                 .cornerRadius(10)
                 
                 // Front image capture
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 12) {
                     Text("Front of Packet (for price)")
                         .font(.headline)
                     
-                    Button(action: {
-                        isFrontImageScanning = true
-                    }) {
-                        HStack {
-                            Image(systemName: "camera.fill")
-                            Text("Capture Front Image")
+                    if let image = capturedImage {
+                        // Show captured image preview
+                        VStack(spacing: 8) {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxHeight: 150)
+                                .cornerRadius(10)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(Color.green, lineWidth: 2)
+                                )
+                            
+                            HStack {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                Text("Image captured")
+                                    .font(.caption)
+                                    .foregroundColor(.green)
+                            }
+                            
+                            Button(action: {
+                                isFrontImageScanning = true
+                            }) {
+                                HStack {
+                                    Image(systemName: "camera.fill")
+                                    Text("Retake Photo")
+                                }
+                                .font(.subheadline)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.orange)
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
+                            }
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
+                    } else {
+                        Button(action: {
+                            isFrontImageScanning = true
+                        }) {
+                            HStack {
+                                Image(systemName: "camera.fill")
+                                Text("Capture Front Image")
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                        }
                     }
                 }
                 .padding()
@@ -365,16 +345,27 @@ struct WeightAndFrontImageSheet: View {
                 
                 // Complete button
                 Button(action: {
+                    // Pass the captured image before completing
+                    if let image = capturedImage {
+                        onFrontImageCaptured(image)
+                    }
+                    // Close modal and fetch price
                     onComplete()
                 }) {
-                    Text("Done")
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.green)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
+                    HStack {
+                        if capturedImage != nil && !weightText.isEmpty {
+                            Image(systemName: "checkmark.circle.fill")
+                        }
+                        Text("Done")
+                            .fontWeight(.semibold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background((capturedImage != nil && !weightText.isEmpty) ? Color.green : Color.gray)
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
                 }
+                .disabled(capturedImage == nil || weightText.isEmpty)
             }
             .padding()
             .navigationTitle("Product Details")
@@ -390,7 +381,7 @@ struct WeightAndFrontImageSheet: View {
                 IngredientScanSheet(
                     isPresented: $isFrontImageScanning,
                     onImageCaptured: { image in
-                        onFrontImageCaptured(image)
+                        capturedImage = image
                         isFrontImageScanning = false
                     }
                 )

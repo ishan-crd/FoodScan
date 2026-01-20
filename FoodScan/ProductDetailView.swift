@@ -10,11 +10,16 @@ import SwiftData
 
 struct ProductDetailView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @State private var price: String?
     @State private var isFetchingPrice = false
     @State private var showPriceError = false
+    @State private var showWeightInput = false
+    @State private var weightText: String = ""
+    @State private var frontImage: UIImage?
+    @State private var isFrontImageScanning = false
     
-    let product: Product
+    var product: Product
     
     var body: some View {
         NavigationStack {
@@ -154,29 +159,6 @@ struct ProductDetailView: View {
                     .background(Color(.systemGray6))
                     .cornerRadius(10)
                     
-                    // Weight display
-                    if let weight = product.weightInGrams {
-                        InfoRow(label: "Weight", value: "\(weight)g")
-                    }
-                    
-                    // Front image preview
-                    if let frontImage = product.frontImage {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Front of Packet")
-                                .font(.headline)
-                                .foregroundColor(.secondary)
-                            
-                            Image(uiImage: frontImage)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(maxHeight: 200)
-                                .cornerRadius(10)
-                        }
-                        .padding()
-                        .background(Color(.systemGray6))
-                        .cornerRadius(10)
-                    }
-                    
                     // Price Section
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Price")
@@ -189,34 +171,24 @@ struct ProductDetailView: View {
                                 .foregroundColor(.green)
                                 .fixedSize(horizontal: false, vertical: true)
                         } else {
-                            if product.frontImage != nil {
-                                Button(action: fetchPrice) {
-                                    HStack {
-                                        if isFetchingPrice {
-                                            ProgressView()
-                                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                        } else {
-                                            Image(systemName: "dollarsign.circle.fill")
-                                        }
-                                        Text("Extract Price from Image")
-                                            .fontWeight(.semibold)
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .padding()
-                                    .background(Color.blue)
-                                    .foregroundColor(.white)
-                                    .cornerRadius(10)
+                            Button(action: {
+                                showWeightInput = true
+                            }) {
+                                HStack {
+                                    Image(systemName: "dollarsign.circle.fill")
+                                    Text("Check Price")
+                                        .fontWeight(.semibold)
                                 }
-                                .disabled(isFetchingPrice)
-                            } else {
-                                Text("No front image available. Please scan the front of the packet.")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.blue)
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
                             }
                         }
                         
                         if showPriceError {
-                            Text("Unable to extract price from image. Please ensure the price is clearly visible.")
+                            Text("Unable to fetch price. Please try again.")
                                 .font(.caption)
                                 .foregroundColor(.red)
                         }
@@ -242,22 +214,49 @@ struct ProductDetailView: View {
                     }
                 }
             }
+            .sheet(isPresented: $showWeightInput) {
+                WeightAndFrontImageSheet(
+                    isPresented: $showWeightInput,
+                    weightText: $weightText,
+                    onFrontImageCaptured: { image in
+                        frontImage = image
+                    },
+                    onComplete: {
+                        fetchPrice()
+                    }
+                )
+            }
+            .sheet(isPresented: $isFrontImageScanning) {
+                IngredientScanSheet(
+                    isPresented: $isFrontImageScanning,
+                    onImageCaptured: { image in
+                        frontImage = image
+                        isFrontImageScanning = false
+                    }
+                )
+            }
         }
     }
     
     // Fetch price on demand from front image
     private func fetchPrice() {
-        guard let frontImage = product.frontImage else {
+        guard let frontImage = frontImage else {
             showPriceError = true
             return
         }
+        
+        // Convert weight string to Int
+        let weight = Int(weightText.trimmingCharacters(in: .whitespacesAndNewlines))
+        
+        // Close the modal first
+        showWeightInput = false
         
         isFetchingPrice = true
         showPriceError = false
         
         PriceLookupService.extractPriceFromImage(
             frontImage,
-            weightInGrams: product.weightInGrams
+            weightInGrams: weight
         ) { result in
             DispatchQueue.main.async {
                 isFetchingPrice = false
@@ -265,6 +264,10 @@ struct ProductDetailView: View {
                 switch result {
                 case .success(let priceString):
                     price = priceString
+                    // Update product with weight and image
+                    product.weightInGrams = weight
+                    product.frontImageData = frontImage.jpegData(compressionQuality: 0.8)
+                    try? modelContext.save()
                 case .failure:
                     showPriceError = true
                 }

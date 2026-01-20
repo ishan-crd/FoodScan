@@ -90,15 +90,8 @@ class PriceLookupService {
         let inrPrice = CurrencyConverter.convertDongToInr(price)
         let inrString = String(format: "₹%.2f", inrPrice)
         
-        // Calculate per kg if weight available
-        var result = "Local: \(priceString)\nConverted: \(inrString)"
-        if let weightGrams = weightInGrams, weightGrams > 0 {
-            let perKgDong = (price / Double(weightGrams)) * 1000
-            let perKgInr = CurrencyConverter.convertDongToInr(perKgDong)
-            result += "\nPer kg: ₫\(String(format: "%.0f", perKgDong)) (₹\(String(format: "%.2f", perKgInr)))"
-        }
-        
-        result += "\n\n(Search query: \(query))"
+        // Format result (no per kg price)
+        let result = "Local: \(priceString)\nConverted: \(inrString)"
         
         return result
     }
